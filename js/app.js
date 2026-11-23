@@ -86,8 +86,7 @@ async function setup() {
     // (Optional) Load presets, if any
     loadPresets(device, patcher);
 
-    // (Optional) Connect MIDI inputs
-    makeMIDIKeyboard(device);
+    connectMIDIInputs(device);
 
     document.body.onclick = () => {
         context.resume();
@@ -285,54 +284,62 @@ function loadPresets(device, patcher) {
     presetSelect.onchange = () => device.setPreset(presets[presetSelect.value].preset);
 }
 
-function makeMIDIKeyboard(device) {
-    let mdiv = document.getElementById("rnbo-clickable-keyboard");
-    if (device.numMIDIInputPorts === 0) return;
+function connectMIDIInputs(device) {
+    const button = document.getElementById("enable-midi");
+    const status = document.getElementById("midi-status");
+    const noteReadout = document.getElementById("midi-note");
+    if (device.numMIDIInputPorts === 0) {
+        status.textContent = "This RNBO patch has no MIDI input.";
+        return;
+    }
+    if (!navigator.requestMIDIAccess) {
+        status.textContent = "Web MIDI requires a supported browser and a secure context (HTTPS or localhost).";
+        return;
+    }
 
-    mdiv.removeChild(document.getElementById("no-midi-label"));
+    function forwardMessage(event) {
+        const [message, note, velocity] = event.data;
+        if ((message & 0xf0) === 0x90 && velocity > 0) {
+            const channel = (message & 0x0f) + 1;
+            const inputName = event.currentTarget.name || "MIDI input";
+            noteReadout.textContent = `${inputName}: note ${note}, channel ${channel}, velocity ${velocity}`;
+        }
+        const timeMs = device.context.currentTime * 1000;
+        device.scheduleEvent(new RNBO.MIDIEvent(timeMs, 0, Array.from(event.data)));
+    }
 
-    const midiNotes = [49, 52, 56, 63];
-    midiNotes.forEach(note => {
-        const key = document.createElement("div");
-        const label = document.createElement("p");
-        label.textContent = note;
-        key.appendChild(label);
-        key.addEventListener("pointerdown", () => {
-            let midiChannel = 0;
+    button.disabled = false;
+    status.textContent = "Enable MIDI to connect your keyboard.";
+    button.addEventListener("click", async (event) => {
+        event.stopPropagation();
+        button.disabled = true;
+        status.textContent = "Requesting MIDI access…";
+        try {
+            const [access] = await Promise.all([
+                navigator.requestMIDIAccess(),
+                device.context.resume()
+            ]);
 
-            // Format a MIDI message paylaod, this constructs a MIDI on event
-            let noteOnMessage = [
-                144 + midiChannel, // Code for a note on: 10010000 & midi channel (0-15)
-                note, // MIDI Note
-                100 // MIDI Velocity
-            ];
-        
-            let noteOffMessage = [
-                128 + midiChannel, // Code for a note off: 10000000 & midi channel (0-15)
-                note, // MIDI Note
-                0 // MIDI Velocity
-            ];
-        
-            // Including rnbo.min.js (or the unminified rnbo.js) will add the RNBO object
-            // to the global namespace. This includes the TimeNow constant as well as
-            // the MIDIEvent constructor.
-            let midiPort = 0;
-            let noteDurationMs = 250;
-        
-            // When scheduling an event to occur in the future, use the current audio context time
-            // multiplied by 1000 (converting seconds to milliseconds) for now.
-            let noteOnEvent = new RNBO.MIDIEvent(device.context.currentTime * 1000, midiPort, noteOnMessage);
-            let noteOffEvent = new RNBO.MIDIEvent(device.context.currentTime * 1000 + noteDurationMs, midiPort, noteOffMessage);
-        
-            device.scheduleEvent(noteOnEvent);
-            device.scheduleEvent(noteOffEvent);
+            function updateInputs() {
+                const names = [];
+                for (const input of access.inputs.values()) {
+                    if (input.state !== "connected") continue;
+                    input.onmidimessage = forwardMessage;
+                    names.push(input.name || "MIDI input");
+                }
+                status.textContent = names.length
+                    ? "Connected: " + names.join(", ")
+                    : "Connect a MIDI keyboard.";
+            }
 
-            key.classList.add("clicked");
-        });
-
-        key.addEventListener("pointerup", () => key.classList.remove("clicked"));
-
-        mdiv.appendChild(key);
+            access.addEventListener("statechange", updateInputs);
+            updateInputs();
+            noteReadout.hidden = false;
+            button.hidden = true;
+        } catch (error) {
+            status.textContent = "Could not start MIDI: " + error.message;
+            button.disabled = false;
+        }
     });
 }
 

@@ -70,6 +70,7 @@ async function setup() {
 
     // Connect the device to the web audio graph
     device.node.connect(outputNode);
+    drawWaveform(context, outputNode);
 
     // (Optional) Extract the name and rnbo version of the patcher from the description
     document.getElementById("patcher-title").innerText = (patcher.desc.meta.filename || "Unnamed Patcher") + " (v" + patcher.desc.meta.rnboversion + ")";
@@ -208,6 +209,9 @@ function makeSliders(device) {
 
 function makeADSRDials(device) {
     const container = document.getElementById("adsr-dials");
+    const oscillator = document.getElementById("oscillator-dials");
+    const envelope = document.getElementById("envelope-display");
+    const envelopePositions = { attack: 0, decay: 0, sustain: 0, release: 0 };
     const status = document.getElementById("adsr-status");
     const inports = device.messages.filter(message => message.type === RNBO.MessagePortType.Inport);
     const missingInports = [];
@@ -224,7 +228,7 @@ function makeADSRDials(device) {
         control.className = "adsr-control";
         const label = document.createElement("label");
         label.htmlFor = "adsr-" + name;
-        label.textContent = name;
+        label.textContent = name === "pwm" ? "PWM" : name;
 
         const dial = document.createElement("div");
         dial.className = "adsr-dial";
@@ -239,6 +243,28 @@ function makeADSRDials(device) {
         input.disabled = !inports.some(inport => inport.tag === name);
         if (input.disabled) missingInports.push(name);
 
+        let dragStartY;
+        let dragStartPosition;
+        input.addEventListener("pointerdown", event => {
+            if (!event.isPrimary || event.button !== 0) return;
+            event.preventDefault();
+            input.focus();
+            dragStartY = event.clientY;
+            dragStartPosition = input.valueAsNumber;
+            input.setPointerCapture(event.pointerId);
+        });
+        function updateDrag(event) {
+            if (!input.hasPointerCapture(event.pointerId)) return;
+            const position = dragStartPosition + (dragStartY - event.clientY) / 180;
+            const previousPosition = input.valueAsNumber;
+            input.valueAsNumber = Math.max(0, Math.min(1, position));
+            if (input.valueAsNumber !== previousPosition) {
+                input.dispatchEvent(new Event("input", { bubbles: true }));
+            }
+        }
+        input.addEventListener("pointermove", updateDrag);
+        input.addEventListener("pointerup", updateDrag);
+
         const readout = document.createElement("span");
         readout.textContent = min + "–" + max + unit;
         input.addEventListener("input", () => {
@@ -249,15 +275,67 @@ function makeADSRDials(device) {
             readout.textContent = Number(value.toFixed(3)) + unit;
             input.setAttribute("aria-valuetext", readout.textContent);
             device.scheduleEvent(new RNBO.MessageEvent(RNBO.TimeNow, name, [value]));
+            if (name in envelopePositions) {
+                envelopePositions[name] = (value - min) / (max - min);
+                drawEnvelope(envelope, envelopePositions);
+            }
         });
 
         dial.append(input);
         control.append(label, dial, readout);
-        container.append(control);
+        const target = name === "pwm" ? oscillator : container;
+        target.append(control);
     }
 
+    drawEnvelope(envelope, envelopePositions);
     status.hidden = missingInports.length === 0;
     status.textContent = "Missing RNBO inports: " + missingInports.join(", ");
+}
+
+function drawEnvelope(canvas, { attack, decay, sustain, release }) {
+    const drawing = canvas.getContext("2d");
+    const { width, height } = canvas;
+    const peak = width * (0.12 + attack * 0.16);
+    const decayEnd = peak + width * (0.1 + decay * 0.14);
+    const releaseEnd = width * (0.78 + release * 0.18);
+    const sustainY = height * (0.86 - sustain * 0.72);
+    drawing.clearRect(0, 0, width, height);
+    drawing.beginPath();
+    drawing.moveTo(width * 0.04, height * 0.86);
+    drawing.lineTo(peak, height * 0.14);
+    drawing.lineTo(decayEnd, sustainY);
+    drawing.lineTo(width * 0.68, sustainY);
+    drawing.lineTo(releaseEnd, height * 0.86);
+    drawing.lineWidth = 4;
+    drawing.lineJoin = "round";
+    drawing.strokeStyle = "#ffc0a7";
+    drawing.stroke();
+}
+
+function drawWaveform(context, outputNode) {
+    const canvas = document.getElementById("waveform-display");
+    const drawing = canvas.getContext("2d");
+    const analyser = context.createAnalyser();
+    const samples = new Float32Array(analyser.fftSize);
+    outputNode.connect(analyser);
+    drawing.lineWidth = 3;
+    drawing.strokeStyle = "#a8e5d0";
+
+    function render() {
+        analyser.getFloatTimeDomainData(samples);
+        drawing.clearRect(0, 0, canvas.width, canvas.height);
+        drawing.beginPath();
+        for (let x = 0; x < canvas.width; x++) {
+            const sample = samples[Math.floor(x * samples.length / canvas.width)];
+            const y = canvas.height * (0.5 - sample * 0.45);
+            if (x === 0) drawing.moveTo(x, y);
+            else drawing.lineTo(x, y);
+        }
+        drawing.stroke();
+        requestAnimationFrame(render);
+    }
+
+    render();
 }
 
 function attachOutports(device) {

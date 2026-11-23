@@ -67,6 +67,7 @@ h2, em {
 
 .adsr-dial {
     position: relative;
+    cursor: ns-resize;
     width: 52px;
     aspect-ratio: 1;
     border: 2px solid #343434;
@@ -90,7 +91,8 @@ h2, em {
     height: 100%;
     margin: 0;
     opacity: 0;
-    cursor: ew-resize;
+    cursor: inherit;
+    touch-action: none;
 }
 
 .adsr-dial:focus-within {
@@ -100,8 +102,182 @@ h2, em {
 
 .adsr-dial:has(input:disabled) {
     opacity: 0.5;
+    cursor: default;
 }
 
-.adsr-dial input:disabled {
-    cursor: default;
+:root {
+    color-scheme: dark;
+    font: 16px/1.5 "Avenir Next", Avenir, system-ui, sans-serif;
+    color: #fff1e7;
+    background: #1b171b;
+}
+
+body {
+    background: radial-gradient(ellipse at top left, #35252e, #1b171b 70%);
+    min-height: 100vh;
+}
+
+#rnbo-root {
+    box-sizing: border-box;
+    display: grid;
+    grid-template-columns: minmax(0, 1.8fr) minmax(0, 1fr);
+    gap: 16px;
+    width: min(100%, 1160px);
+    max-width: none;
+    height: auto;
+    padding: clamp(20px, 5vw, 60px);
+}
+
+.synth-header,
+#rnbo-midi,
+#adsr-status,
+#rnbo-console,
+#rnbo-presets,
+#rnbo-parameter-sliders {
+    grid-column: 1 / -1;
+}
+
+.synth-header h1 {
+    margin: 0;
+    font-size: clamp(3rem, 9vw, 7rem);
+    line-height: 1;
+    letter-spacing: -0.085em;
+}
+
+.synth-header h1 span {
+    color: #ffa689;
+}
+
+#patcher-title {
+    margin: 0.75rem 0 1rem;
+    color: #d2bfc7;
+}
+
+#rnbo-midi,
+#rnbo-adsr,
+#rnbo-oscillator,
+#rnbo-console,
+#rnbo-presets,
+#rnbo-parameter-sliders {
+    min-width: 0;
+    padding: clamp(16px, 3vw, 26px);
+    border: 1px solid #594650;
+    border-radius: 16px;
+    background: #2b232b;
+}
+
+#rnbo-adsr {
+    --module-accent: #ffc0a7;
+}
+
+#rnbo-oscillator {
+    --module-accent: #a8e5d0;
+}
+
+#rnbo-root h2 {
+    margin: 0 0 14px;
+    font-size: 1.05rem;
+    letter-spacing: 0.025em;
+    color: var(--module-accent, inherit);
+}
+
+#rnbo-root [hidden] {
+    display: none;
+}
+
+#rnbo-root button,
+#rnbo-root select {
+    font: inherit;
+    color: inherit;
+    border: 1px solid #806b77;
+    border-radius: 8px;
+    background: #201a20;
+    padding: 8px 12px;
+}
+
+#rnbo-root #enable-midi {
+    background: #ffc0a7;
+    border-color: #ffc0a7;
+    color: #231a21;
+    font-weight: 700;
+    cursor: pointer;
+}
+
+#rnbo-midi p {
+    margin: 8px 0 0;
+    color: #d2bfc7;
+}
+
+#rnbo-midi p:empty {
+    display: none;
+}
+
+#midi-input-select {
+    max-width: 100%;
+    margin-inline-start: 8px;
+}
+
+#rnbo-root canvas {
+    box-sizing: border-box;
+    display: block;
+    width: 100%;
+    height: clamp(105px, 16vw, 150px);
+    margin-bottom: 20px;
+    border: 1px solid #52424e;
+    border-radius: 10px;
+    background:
+        repeating-linear-gradient(90deg, #ffffff12 0 1px, transparent 1px 10%),
+        repeating-linear-gradient(#ffffff12 0 1px, transparent 1px 25%),
+        #211a22;
+}
+
+#adsr-dials {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 8px;
+}
+
+.adsr-control {
+    font-size: 0.875rem;
+    font-variant-numeric: tabular-nums;
+    text-align: center;
+}
+
+.adsr-control label {
+    text-transform: capitalize;
+}
+
+.adsr-control span {
+    color: var(--module-accent);
+}
+
+.adsr-dial {
+    width: min(100%, 58px);
+    box-sizing: border-box;
+    border-color: #806b77;
+    background: radial-gradient(circle at 38% 25%, #534350, #2e2430 72%);
+}
+
+.adsr-dial::before {
+    background: linear-gradient(var(--module-accent), var(--module-accent)) top center / 3px 12px no-repeat;
+}
+
+.adsr-dial:focus-within {
+    outline-color: var(--module-accent);
+}
+
+#adsr-status {
+    margin: 0;
+    color: #ffc0a7;
+}
+
+#rnbo-console:has(#no-outports-label),
+#rnbo-presets:has(#no-presets-label),
+#rnbo-parameter-sliders:has(#no-param-label) {
+    display: none;
+}
+
+@media (max-width: 680px) {
+    #rnbo-root {
+        grid-template-columns: minmax(0, 1fr);
+    }
 }

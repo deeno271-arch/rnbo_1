@@ -77,8 +77,7 @@ async function setup() {
     // (Optional) Automatically create sliders for the device parameters
     makeSliders(device);
 
-    // (Optional) Create a form to send messages to RNBO inputs
-    makeInportForm(device);
+    makeADSRDials(device);
 
     // (Optional) Attach listeners to outports so you can log messages from the RNBO patcher
     attachOutports(device);
@@ -207,43 +206,58 @@ function makeSliders(device) {
     });
 }
 
-function makeInportForm(device) {
-    const idiv = document.getElementById("rnbo-inports");
-    const inportSelect = document.getElementById("inport-select");
-    const inportText = document.getElementById("inport-text");
-    const inportForm = document.getElementById("inport-form");
-    let inportTag = null;
-    
-    // Device messages correspond to inlets/outlets or inports/outports
-    // You can filter for one or the other using the "type" of the message
-    const messages = device.messages;
-    const inports = messages.filter(message => message.type === RNBO.MessagePortType.Inport);
+function makeADSRDials(device) {
+    const container = document.getElementById("adsr-dials");
+    const status = document.getElementById("adsr-status");
+    const inports = device.messages.filter(message => message.type === RNBO.MessagePortType.Inport);
+    const missingInports = [];
+    const controls = [
+        { name: "attack", min: 0.1, max: 2000, exponent: 4, unit: " ms" },
+        { name: "decay", min: 0.1, max: 2000, exponent: 4, unit: " ms" },
+        { name: "sustain", min: 0, max: 1, exponent: 2, unit: "" },
+        { name: "release", min: 0.1, max: 2000, exponent: 4, unit: " ms" },
+        { name: "pwm", min: 0, max: 1, exponent: 1, unit: "" }
+    ];
 
-    if (inports.length === 0) {
-        idiv.removeChild(document.getElementById("inport-form"));
-        return;
-    } else {
-        idiv.removeChild(document.getElementById("no-inports-label"));
-        inports.forEach(inport => {
-            const option = document.createElement("option");
-            option.innerText = inport.tag;
-            inportSelect.appendChild(option);
+    for (const { name, min, max, exponent, unit } of controls) {
+        const control = document.createElement("div");
+        control.className = "adsr-control";
+        const label = document.createElement("label");
+        label.htmlFor = "adsr-" + name;
+        label.textContent = name;
+
+        const dial = document.createElement("div");
+        dial.className = "adsr-dial";
+        const input = document.createElement("input");
+        input.type = "range";
+        input.id = label.htmlFor;
+        input.min = 0;
+        input.max = 1;
+        input.step = 0.001;
+        input.value = 0;
+        input.setAttribute("aria-valuetext", min + unit);
+        input.disabled = !inports.some(inport => inport.tag === name);
+        if (input.disabled) missingInports.push(name);
+
+        const readout = document.createElement("span");
+        readout.textContent = min + "–" + max + unit;
+        input.addEventListener("input", () => {
+            const position = input.valueAsNumber;
+            const value = min + (max - min) * position ** exponent;
+            const angle = -135 + 270 * position;
+            dial.style.setProperty("--dial-angle", angle + "deg");
+            readout.textContent = Number(value.toFixed(3)) + unit;
+            input.setAttribute("aria-valuetext", readout.textContent);
+            device.scheduleEvent(new RNBO.MessageEvent(RNBO.TimeNow, name, [value]));
         });
-        inportSelect.onchange = () => inportTag = inportSelect.value;
-        inportTag = inportSelect.value;
 
-        inportForm.onsubmit = (ev) => {
-            // Do this or else the page will reload
-            ev.preventDefault();
-
-            // Turn the text into a list of numbers (RNBO messages must be numbers, not text)
-            const values = inportText.value.split(/\s+/).map(s => parseFloat(s));
-            
-            // Send the message event to the RNBO device
-            let messageEvent = new RNBO.MessageEvent(RNBO.TimeNow, inportTag, values);
-            device.scheduleEvent(messageEvent);
-        }
+        dial.append(input);
+        control.append(label, dial, readout);
+        container.append(control);
     }
+
+    status.hidden = missingInports.length === 0;
+    status.textContent = "Missing RNBO inports: " + missingInports.join(", ");
 }
 
 function attachOutports(device) {
@@ -288,6 +302,8 @@ function connectMIDIInputs(device) {
     const button = document.getElementById("enable-midi");
     const status = document.getElementById("midi-status");
     const noteReadout = document.getElementById("midi-note");
+    const picker = document.getElementById("midi-input-picker");
+    const select = document.getElementById("midi-input-select");
     if (device.numMIDIInputPorts === 0) {
         status.textContent = "This RNBO patch has no MIDI input.";
         return;
@@ -297,15 +313,40 @@ function connectMIDIInputs(device) {
         return;
     }
 
+    let selectedInput = null;
+    const heldNotes = new Set();
+
+    function scheduleMIDI(data) {
+        const timeMs = device.context.currentTime * 1000;
+        device.scheduleEvent(new RNBO.MIDIEvent(timeMs, 0, data));
+    }
+
     function forwardMessage(event) {
         const [message, note, velocity] = event.data;
+        const noteKey = ((message & 0x0f) << 7) | note;
         if ((message & 0xf0) === 0x90 && velocity > 0) {
+            heldNotes.add(noteKey);
             const channel = (message & 0x0f) + 1;
             const inputName = event.currentTarget.name || "MIDI input";
             noteReadout.textContent = `${inputName}: note ${note}, channel ${channel}, velocity ${velocity}`;
+        } else if ((message & 0xf0) === 0x80 || (message & 0xf0) === 0x90) {
+            heldNotes.delete(noteKey);
         }
-        const timeMs = device.context.currentTime * 1000;
-        device.scheduleEvent(new RNBO.MIDIEvent(timeMs, 0, Array.from(event.data)));
+        scheduleMIDI(Array.from(event.data));
+    }
+
+    function selectInput(input) {
+        if (selectedInput === input) return;
+        if (selectedInput) {
+            selectedInput.removeEventListener("midimessage", forwardMessage);
+            for (const noteKey of heldNotes) {
+                scheduleMIDI([0x80 | (noteKey >> 7), noteKey & 0x7f, 0]);
+            }
+            heldNotes.clear();
+        }
+        selectedInput = input;
+        noteReadout.textContent = "No MIDI notes received yet.";
+        if (input) input.addEventListener("midimessage", forwardMessage);
     }
 
     button.disabled = false;
@@ -321,19 +362,21 @@ function connectMIDIInputs(device) {
             ]);
 
             function updateInputs() {
-                const names = [];
-                for (const input of access.inputs.values()) {
-                    if (input.state !== "connected") continue;
-                    input.onmidimessage = forwardMessage;
-                    names.push(input.name || "MIDI input");
-                }
-                status.textContent = names.length
-                    ? "Connected: " + names.join(", ")
-                    : "Connect a MIDI keyboard.";
+                const inputs = Array.from(access.inputs.values()).filter(input => input.state === "connected");
+                const activeInput = inputs.find(input => input.id === selectedInput?.id) || inputs[0];
+                select.replaceChildren(...inputs.map(input => new Option(input.name || "MIDI input", input.id)));
+                select.disabled = !activeInput;
+                select.value = activeInput?.id || "";
+                selectInput(activeInput || null);
+                status.textContent = activeInput ? "" : "Connect a MIDI keyboard.";
             }
 
-            access.addEventListener("statechange", updateInputs);
+            select.addEventListener("change", () => selectInput(access.inputs.get(select.value) || null));
+            access.addEventListener("statechange", (event) => {
+                if (event.port.type === "input") updateInputs();
+            });
             updateInputs();
+            picker.hidden = false;
             noteReadout.hidden = false;
             button.hidden = true;
         } catch (error) {

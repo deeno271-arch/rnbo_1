@@ -52,3 +52,56 @@ h2, em {
 #rnbo-parameter-sliders > div > input:first-of-type {
     flex-grow: 1;
 }
+
+#adsr-dials {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
+    gap: 12px;
+}
+
+.adsr-control {
+    display: grid;
+    justify-items: center;
+    gap: 6px;
+}
+
+.adsr-dial {
+    position: relative;
+    width: 52px;
+    aspect-ratio: 1;
+    border: 2px solid #343434;
+    border-radius: 50%;
+    background: #fafafa;
+}
+
+.adsr-dial::before {
+    position: absolute;
+    inset: 5px;
+    border-radius: 50%;
+    background: linear-gradient(#343434, #343434) top center / 3px 12px no-repeat;
+    transform: rotate(var(--dial-angle, -135deg));
+    content: "";
+}
+
+.adsr-dial input {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    margin: 0;
+    opacity: 0;
+    cursor: ew-resize;
+}
+
+.adsr-dial:focus-within {
+    outline: 2px solid #2350a2;
+    outline-offset: 3px;
+}
+
+.adsr-dial:has(input:disabled) {
+    opacity: 0.5;
+}
+
+.adsr-dial input:disabled {
+    cursor: default;
+}
